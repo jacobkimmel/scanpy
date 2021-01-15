@@ -5,6 +5,8 @@ requires = [
     'setuptools_scm',
     'pytoml',
     'importlib_metadata>=0.7; python_version < "3.8"',
+    # setup.py stuff
+    'packaging',
 ]
 
 [tool.flit.metadata]
