@@ -2,6 +2,8 @@
 Don't use this except if you have a deadline or you encounter a bug.
 """
 import re
+import sys
+from warnings import warn
 
 import setuptools
 from pathlib import Path
@@ -29,8 +31,8 @@ def setup_args(config_path=Path("pyproject.toml")):
         val = getattr(metadata, metadata_field, None)
         if val is not None:
             kwargs[st_field] = val
-        elif metadata_field not in {'license'}:
-            print(f'{metadata_field} not found in {dir(metadata)}')
+        elif metadata_field not in {"license"}:
+            print(f"{metadata_field} not found in {dir(metadata)}")
     kwargs["packages"] = setuptools.find_packages(include=[metadata.name + "*"])
     if metadata.requires_dist:
         kwargs["install_requires"] = [
@@ -52,5 +54,15 @@ def setup_args(config_path=Path("pyproject.toml")):
     return kwargs
 
 
-# print(*[f'{p}={v!r}' for p, v in setup_args().items()], sep='\n')
-setuptools.setup(**setup_args())
+if __name__ == "__main__":
+    if "develop" in sys.argv:
+        msg = (
+            "Please use `flit install -s` or `flit install --pth-file` "
+            "instead of `pip install -e`/`python setup.py develop`"
+        )
+    elif "install" in sys.argv:
+        msg = 'Please use `pip install "$d"` instead of `python "$d/setup.py" install`'
+    else:
+        msg = "Please use `pip ...` or `flit ...` instead of `python setup.py ...`"
+    warn(msg, FutureWarning)
+    setuptools.setup(**setup_args())
