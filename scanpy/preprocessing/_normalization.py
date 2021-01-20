@@ -255,7 +255,9 @@ def normalize_pearson_residuals(
     inplace: bool = True,
 ) -> Optional[Dict[str, np.ndarray]]:
     """\
-    Normalize counts using analytic Pearson residuals.
+    Normalize counts using analytic Pearson residuals from negative binomial
+    regression with a constant variance `theta` for all genes, as described
+    in [Lause20]_.
 
     Params
     ------
@@ -305,14 +307,8 @@ def normalize_pearson_residuals(
 
     Notes
     -----
-    Computes Pearson residuals for each expression value using an analytical formulation
-    that assumes constant technical variation across genes.
-           
-    References
-    ----------
-    Analytic Pearson residuals for normalization of single-cell RNA-seq UMI data.
-    Jan Lause, Philipp Berens, Dmitry Kobak.
-    https://www.biorxiv.org/content/10.1101/2020.12.01.405886v1
+    Computes Pearson residuals for each expression value using an analytical 
+    formulation that assumes constant technical variation across genes.
     """
     if layers == 'all':
         layers = adata.layers.keys()
