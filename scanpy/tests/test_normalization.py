@@ -44,3 +44,40 @@ def test_normalize_total_view(typ, dtype):
 
     assert not v.is_view
     assert_equal(adata, v)
+
+
+@pytest.mark.parametrize('typ', [np.array, csr_matrix], ids=lambda x: x.__name__)
+@pytest.mark.parametrize('dtype', ['float32', 'int64'])
+def test_normalize_pearson_residuals(typ, dtype):
+    adata = AnnData(typ(X_total), dtype=dtype)
+    sc.pp.normalize_pearson_residuals(adata, theta=100., inplace=True, key_added='n_counts')
+    assert (adata.X[:2, 0].mean() > adata.X[2, 0])
+    assert np.allclose(adata.obs['n_counts'], [1.0, 3.0, 11.0])
+    
+    # test that theta influences residuals
+    adata = AnnData(typ(X_total), dtype=dtype)
+    x0 = sc.pp.normalize_pearson_residuals(adata, theta=100., inplace=False,)
+    x1 = sc.pp.normalize_pearson_residuals(adata, theta=1., inplace=False,)
+    assert np.all(x0['X'] != x1['X']) # no residuals should be equal with different theta
+    
+
+@pytest.mark.parametrize('typ', [np.array, csr_matrix], ids=lambda x: x.__name__)
+@pytest.mark.parametrize('dtype', ['float32', 'int64'])
+def test_normalize_pearson_residuals_layers(typ, dtype):
+    adata = AnnData(typ(X_total), dtype=dtype)
+    adata.layers["layer"] = adata.X.copy()
+    sc.pp.normalize_pearson_residuals(adata, layers=["layer"])
+    assert (adata.layers["layer"][:2, 0].mean() > adata.layers["layer"][2, 0])
+    
+
+@pytest.mark.parametrize('typ', [np.array, csr_matrix], ids=lambda x: x.__name__)
+@pytest.mark.parametrize('dtype', ['float32', 'int64'])
+def test_normalize_pearson_residuals(typ, dtype):
+    adata = AnnData(typ(X_total), dtype=dtype)
+    v = adata[:, :]
+
+    sc.pp.normalize_pearson_residuals(v)
+    sc.pp.normalize_pearson_residuals(adata)
+
+    assert not v.is_view
+    assert_equal(adata, v)

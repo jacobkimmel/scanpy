@@ -200,3 +200,160 @@ def normalize_total(
         logg.debug(f'and added {key_added!r}, counts per cell before normalization (adata.obs)')
 
     return dat if not inplace else None
+
+
+def _pearson_residuals(
+    X, 
+    theta: float, 
+    copy: bool=False, 
+    clip: bool=True,
+):
+    """\
+    Compute analytical Pearson residuals for a counts matrix
+    """
+    X = X.copy() if copy else X
+    # we need to store floats for output anyway, so this doesn't
+    # use more memory and avoids casting conflicts downstream
+    X = X.astype(np.float32) if X.dtype in (np.int32, np.int64) else X
+    if type(X) == np.ndarray:
+        kwargs = {"keepdims": True}
+    else:
+        kwargs = {}
+    # [1, Genes]
+    counts_per_gene = np.sum(X, axis=0, **kwargs)
+    # [Cells, 1]
+    counts_per_cell = np.sum(X, axis=1, **kwargs)
+    # [1,]
+    counts_total = np.sum(X)
+    # get the proportion of counts in each gene across cells
+    mu = counts_per_cell @ counts_per_gene / counts_total
+    # get the pearson residuals as difference from mean profile
+    # scaled by the dispersion
+    
+    if issparse(X):
+        X = np.asarray((X - mu) / np.sqrt(mu + np.power(mu, 2) / theta))
+    else:
+        # n.b. use `np.power` not `**2` in case `mu` is `np.matrix`
+        X = np.divide(
+            (X - mu), 
+            np.sqrt(mu + np.power(mu, 2) / theta), 
+            out=X,
+        )
+    # per the authors' recommendation, we clip values to the sqrt(n_cells)
+    if clip:
+        n_cells = X.shape[0]
+        X = np.clip(X, -1*n_cells, n_cells)
+    return X
+
+
+def normalize_pearson_residuals(
+    adata: AnnData,
+    theta: float=100.,
+    clip: bool=True,
+    key_added: Optional[str] = None,
+    layers: Union[Literal['all'], Iterable[str]] = None,
+    inplace: bool = True,
+) -> Optional[Dict[str, np.ndarray]]:
+    """\
+    Normalize counts using analytic Pearson residuals.
+
+    Params
+    ------
+    adata
+        The annotated data matrix of shape `n_obs` × `n_vars`.
+        Rows correspond to cells and columns to genes.
+    theta
+        Dispersion parameter for the negative binomial regression, constant
+        across genes.
+    clip
+        Clip residuals to +/- `sqrt(n_obs)` per authors' recommendation.
+    key_added
+        Name of the field in `adata.obs` where the normalization factor is
+        stored.
+    layers
+        List of layers to normalize. Set to `'all'` to normalize all layers.
+    inplace
+        Whether to update `adata` or return dictionary with normalized copies of
+        `adata.X` and `adata.layers`.
+
+    Returns
+    -------
+    Returns dictionary with normalized copies of `adata.X` and `adata.layers`
+    or updates `adata` with normalized version of the original
+    `adata.X` and `adata.layers`, depending on `inplace`.
+
+    Example
+    --------
+    >>> from anndata import AnnData
+    >>> import scanpy as sc
+    >>> sc.settings.verbosity = 2
+    >>> np.set_printoptions(precision=2)
+    >>> adata = AnnData(np.array([
+    ...    [3, 3, 3, 6, 6],
+    ...    [1, 1, 1, 2, 2],
+    ...    [1, 22, 1, 2, 2],
+    ... ]))
+    >>> adata.X
+    array([[ 3.,  3.,  3.,  6.,  6.],
+           [ 1.,  1.,  1.,  2.,  2.],
+           [ 1., 22.,  1.,  2.,  2.]], dtype=float32)
+    >>> X_norm = sc.pp.normalize_pearson_residuals(adata, inplace=False)['X']
+    >>> X_norm
+    array([[0.14, 0.14, 0.14, 0.29, 0.29],
+           [0.14, 0.14, 0.14, 0.29, 0.29],
+           [0.04, 0.79, 0.04, 0.07, 0.07]], dtype=float32)
+
+    Notes
+    -----
+    Computes Pearson residuals for each expression value using an analytical formulation
+    that assumes constant technical variation across genes.
+           
+    References
+    ----------
+    Analytic Pearson residuals for normalization of single-cell RNA-seq UMI data.
+    Jan Lause, Philipp Berens, Dmitry Kobak.
+    https://www.biorxiv.org/content/10.1101/2020.12.01.405886v1
+    """
+    if layers == 'all':
+        layers = adata.layers.keys()
+    elif isinstance(layers, str):
+        raise ValueError(
+            f"`layers` needs to be a list of strings or 'all', not {layers!r}"
+        )
+
+    view_to_actual(adata)
+
+    gene_subset = None
+    msg = 'normalizing counts per cell'
+    start = logg.info(msg)
+
+    X = adata.X
+
+    counts_per_cell = np.ravel(X.sum(axis=1))
+    if inplace:
+        if key_added is not None:
+            adata.obs[key_added] = counts_per_cell
+        adata.X = _pearson_residuals(X, theta, copy=False, clip=clip)
+    else:
+        # not recarray because need to support sparse
+        dat = dict(
+            X=_pearson_residuals(X, theta, copy=True, clip=clip),
+            norm_factor=counts_per_cell,
+        )
+
+    for layer_name in (layers or ()):
+        layer = adata.layers[layer_name]
+        counts = np.ravel(layer.sum(1))
+        if inplace:
+            adata.layers[layer_name] = _pearson_residuals(layer, theta, copy=False, clip=clip)
+        else:
+            dat[layer_name] = _pearson_residuals(layer, theta, copy=True, clip=clip)
+
+    logg.info(
+        '    finished ({time_passed})',
+        time=start,
+    )
+    if key_added is not None:
+        logg.debug(f'and added {key_added!r}, counts per cell before normalization (adata.obs)')
+
+    return dat if not inplace else None
